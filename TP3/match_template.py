@@ -147,7 +147,7 @@ def non_max_suppression(boxes, overlapThresh):
     return boxes[pick]
 
 
-def matchTemplateMulti(img_rgb,
+def matchTemplateMultiParam(img_rgb,
                   metodo=cv.TM_CCORR_NORMED, 
                   cual_imagen=IMG_EDGES,
                   cual_template=TEMPLATE_ORIGINAL,
@@ -210,7 +210,7 @@ def matchTemplateMulti(img_rgb,
     # Realizo el non-max suppression
     pick = non_max_suppression(boundingBoxes, umbral_superposicion)
 
-    print(f'Bounding boxes antes: {len(boundingBoxes)} - ahora: {len(pick)}')
+    # print(f'Bounding boxes antes: {len(boundingBoxes)} - ahora: {len(pick)}')
 
     # Itero sobre los bounding boxes seleccionados y los dibujo en la imagen de salida
     for (startX, startY, endX, endY) in pick:
@@ -218,15 +218,15 @@ def matchTemplateMulti(img_rgb,
         pos_text = (startX + 30, startY - 15)
         img_salida = cv.putText(img_salida, f'NC: {res[startY, startX]:.4}', org=pos_text, fontFace=cv.FONT_HERSHEY_SIMPLEX, 
                    fontScale=1, color=(0,255,0), thickness=4, lineType=cv.LINE_AA)    
-                
-    return res, img_salida
+         
+    return res, img_salida, len(boundingBoxes)
 
 """
 matchTemplateAuto construye un set de imagenes a distintas escalas a partir de una imagen de entrada
 y busca detectar el logo de Coca Cola usando diferentes métodos.
 
 """
-escalas = np.append(np.arange(-100, 0, 3), np.arange(100, 0, -3))
+escalas = np.append(np.arange(-100, 0, 3), np.arange(400, 0, -10))
 
 opciones = [
      (cv.TM_CCORR_NORMED,  IMG_EDGES, TEMPLATE_ORIGINAL)
@@ -274,3 +274,19 @@ def matchTemplateAuto(img_rgb):
             return key_selected, img_selected, out_selected, parametros, ic
 
     return -1, None, None, None, None
+
+
+def matchTemplateMulti(img_rgb):
+    imagenes = set_imagenes(img_rgb, escalas)
+    for key, img in imagenes.items():
+        # print(f'key={key}  size={img.shape}')
+        resultado, salida, boxes = matchTemplateMultiParam(img, metodo=cv.TM_CCORR_NORMED
+                                               , umbral_coincidencia = 0.65
+                                               , umbral_superposicion = .25
+                                               , cual_imagen=IMG_GRAY
+                                               , cual_template=TEMPLATE_INVERTIDO
+                                                      )
+        if boxes > 0:
+            return resultado, salida
+
+    return None, None
