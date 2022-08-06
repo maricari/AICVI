@@ -1,5 +1,6 @@
 import cv2 as cv
 import numpy as np
+from imagenes_util import set_imagenes
 
 # templates
 path_template = 'template/pattern.png'
@@ -15,30 +16,6 @@ IMG_EDGES = 2
 
 METODOS = ['cv.TM_CCOEFF', 'cv.TM_CCOEFF_NORMED', 'cv.TM_CCORR',
                 'cv.TM_CCORR_NORMED', 'cv.TM_SQDIFF', 'cv.TM_SQDIFF_NORMED']
-
-
-def piramide_gaussiana(imagen):
-    """
-    Construye una pirámide Gaussiana de 7 imágenes a partir de la imagen de entrada
-    """
-
-    # pyrDown
-    img0 = imagen.copy()
-    imgdn1 = cv.pyrDown(img0)
-    imgdn2 = cv.pyrDown(imgdn1)
-    imgdn3 = cv.pyrDown(imgdn2)
-
-    # PyrUp
-    imgup1 = cv.pyrUp(img0)
-    imgup2 = cv.pyrUp(imgup1)
-    imgup3 = cv.pyrUp(imgup2)
-
-    imagenes = {-3: imgdn3, -2: imgdn2, -1: imgdn1, 
-                0: img0,
-                1: imgup1, 2: imgup2, 3: imgup3
-               }
-
-    return imagenes
 
 
 def matchTemplate(img_rgb,
@@ -244,3 +221,56 @@ def matchTemplateMulti(img_rgb,
                 
     return res, img_salida
 
+"""
+matchTemplateAuto construye un set de imagenes a distintas escalas a partir de una imagen de entrada
+y busca detectar el logo de Coca Cola usando diferentes métodos.
+
+"""
+escalas = np.append(np.arange(-100, 0, 3), np.arange(100, 0, -3))
+
+opciones = [
+     (cv.TM_CCORR_NORMED,  IMG_EDGES, TEMPLATE_ORIGINAL)
+    ,(cv.TM_CCORR_NORMED,  IMG_EDGES, TEMPLATE_INVERTIDO)
+    ,(cv.TM_CCOEFF_NORMED, IMG_EDGES, TEMPLATE_ORIGINAL)
+    ,(cv.TM_CCOEFF_NORMED, IMG_EDGES, TEMPLATE_INVERTIDO)
+    ]
+
+def matchTemplateAutoParam(imagenes, mm, ii, tt):
+
+    best_ic = -1
+    key_selected = -1
+    img_selected = None
+    out_selected = None
+    for key, img in imagenes.items():
+        resultado, salida, valores = matchTemplate(img
+                                                  , metodo = mm
+                                                  , cual_imagen = ii
+                                                  , cual_template = tt)
+
+        if (valores[1] > best_ic and
+            (    (valores[1]>0.2 and valores[1] < 0.28 and ii == IMG_EDGES and mm == cv.TM_CCORR_NORMED)
+              or (valores[1]>0.5 and valores[1] < 0.8 and ii == IMG_GRAY and mm == cv.TM_CCORR_NORMED)
+              or (valores[1]>0.2 and mm != cv.TM_CCORR_NORMED)
+                 )
+            ):
+            best_ic = valores[1]
+            key_selected = key             # escala
+            img_selected = img.copy()      # imagen
+            out_selected = salida.copy()   # imagen con la detección
+            params = (mm, ii, tt, img_selected.shape)
+        elif (valores[1] < best_ic):
+            break
+
+    if key_selected > -1:
+        return key_selected, img_selected, out_selected, params, best_ic
+    return -1, None, None, None, None
+
+
+def matchTemplateAuto(img_rgb):
+    imagenes = set_imagenes(img_rgb, escalas)
+    for mm, ii, tt in opciones:
+        key_selected, img_selected, out_selected, parametros, ic = matchTemplateAutoParam(imagenes, mm, ii, tt)
+        if key_selected > -1:
+            return key_selected, img_selected, out_selected, parametros, ic
+
+    return -1, None, None, None, None

@@ -5,6 +5,52 @@ import matplotlib.pyplot as plt
 import match_template as mt
 
 
+def piramide_gaussiana(imagen):
+    """
+    Construye una pirámide Gaussiana de 7 imágenes a partir de la imagen de entrada
+    """
+
+    # pyrDown
+    img0 = imagen.copy()
+    imgdn1 = cv.pyrDown(img0)
+    imgdn2 = cv.pyrDown(imgdn1)
+    imgdn3 = cv.pyrDown(imgdn2)
+
+    # PyrUp
+    imgup1 = cv.pyrUp(img0)
+    imgup2 = cv.pyrUp(imgup1)
+    imgup3 = cv.pyrUp(imgup2)
+
+    imagenes = {-3: imgdn3, -2: imgdn2, -1: imgdn1, 
+                0: img0,
+                1: imgup1, 2: imgup2, 3: imgup3
+               }
+
+    return imagenes
+
+
+def set_imagenes(imagen, escalas = [-20, -15, -10, -5, 0, 5, 10, 15, 20]):
+    """
+    Construye un set de imágenes a diferentes escalas a partir de la imagen de entrada
+    """
+
+    imagenes = dict()
+    for scale_percent in escalas:
+        scale_percent = 100 + scale_percent
+        if scale_percent<=0:
+            continue
+        width = int(imagen.shape[1] * scale_percent / 100)
+        height = int(imagen.shape[0] * scale_percent / 100)
+        # si es muy chica o muy grande, la saltea
+        if (width<0.8*mt.template.shape[1] or height<0.8*mt.template.shape[0]
+           or (width> 8*mt.template.shape[1] and height> 8*mt.template.shape[0])):
+            continue
+        dim = (width, height)
+        imagenes[scale_percent] = cv.resize(imagen, dim, interpolation = cv.INTER_AREA) 
+
+    return imagenes
+
+
 def plot_set_imagenes(imagenes, titulo = "", columnas=4, print_size=True):
 
     """
