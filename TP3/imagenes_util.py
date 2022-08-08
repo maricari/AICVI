@@ -28,27 +28,30 @@ def piramide_gaussiana(imagen):
 
     return imagenes
 
-
-def set_imagenes(imagen, escalas = [-20, -15, -10, -5, 0, 5, 10, 15, 20]):
+class image_generator:
     """
-    Construye un set de imágenes a diferentes escalas a partir de la imagen de entrada
+    Genera imagenes a distintas escalas a partir de una imagen dada.
     """
+    def __init__(self, imagen, start_percent = 100, scale_percent=2):
+        self.imagen = imagen
+        self.step = scale_percent/100
+        self.pct = start_percent/100
+        self.contador = 0
 
-    imagenes = dict()
-    for scale_percent in escalas:
-        scale_percent = 100 + scale_percent
-        if scale_percent<=0:
-            continue
-        width = int(imagen.shape[1] * scale_percent / 100)
-        height = int(imagen.shape[0] * scale_percent / 100)
-        # si es muy chica o muy grande, la saltea
-        if (width<0.8*mt.template.shape[1] or height<0.8*mt.template.shape[0]
-           or (width> 8*mt.template.shape[1] and height> 8*mt.template.shape[0])):
-            continue
-        dim = (width, height)
-        imagenes[scale_percent] = cv.resize(imagen, dim, interpolation = cv.INTER_AREA) 
+    def next_img(self):
+        """
+        Cada vez que se invoca retorna una imagen nueva.
+        La primera vez, la escala de la imagen será la dada por start_percent. 
+            Por ej: si start_percent = 50 la primera imagen estará a una escala de 50% con respecto a la original
+        A partir de ahí, cada llamada sucesiva, aumentará la escala en un scale_percent.
+        Por ejemplo, para los valores default, las escalas de las imágenes serán:
+        100%, 102%, 104%, etc. con respecto a la original.
+        """
+        img = cv.resize(self.imagen, None, fx= self.pct, fy= self.pct, interpolation= cv.INTER_LINEAR)
+        self.pct = self.pct + self.step
+        self.contador = self.contador + 1
 
-    return imagenes
+        return img, self.contador, self.pct
 
 
 def plot_set_imagenes(imagenes, titulo = "", columnas=4, print_size=True):

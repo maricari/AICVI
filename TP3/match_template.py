@@ -1,37 +1,22 @@
 import cv2 as cv
 import numpy as np
-from imagenes_util import set_imagenes
+import imagenes_util as img_util
 
 # templates
 path_template = 'template/pattern.png'
 
-template = cv.imread(path_template,0)                # original
-template_inv = (template * (-1)).astype('uint8')     # invertido
-
-TEMPLATE_ORIGINAL = 1
-TEMPLATE_INVERTIDO = 2
-
-IMG_GRAY = 1
-IMG_EDGES = 2
-
-METODOS = ['cv.TM_CCOEFF', 'cv.TM_CCOEFF_NORMED', 'cv.TM_CCORR',
-                'cv.TM_CCORR_NORMED', 'cv.TM_SQDIFF', 'cv.TM_SQDIFF_NORMED']
+template = cv.imread(path_template,0)                      # original
+template_edges = cv.Canny(template,40,105,L2gradient=True) # edges
 
 
-def matchTemplate(img_rgb,
-                  metodo=cv.TM_CCORR_NORMED, 
-                  cual_imagen=IMG_EDGES,
-                  cual_template=TEMPLATE_ORIGINAL):
+def matchTemplateParam(img_rgb, img_match, metodo=cv.TM_CCORR_NORMED):
 
     """
     Aplica el match template a la imagen de entrada contra el template de Coca Cola.
     Parámetros:
-    img_rgb: la imagen contra la cual se aplica el procedimiento
+    img_rgb: la imagen original para poder armar la imagen de salida
+    img_match: la imagen contra la cual se aplica el procedimiento (por ej con canny aplicado)
     metodo: método a utilizar
-    cual_imagen: IMG_EDGES (default) usa la imagen de bordes (Canny)
-                 IMG_GRAY usa la imagen en escala de grises
-    cual_template: TEMPLATE_ORIGINAL (default) usa el template de Coca Cola original
-                   TEMPLATE_INVERTIDO usa el template con los colores invertidos
 
     Retorna:
         el resultado de aplicar el método
@@ -39,17 +24,7 @@ def matchTemplate(img_rgb,
         los valores de intensidad máximo y mínimo detectados
     """
 
-    if cual_imagen == IMG_EDGES:
-        edges = cv.Canny(img_rgb,40,105,L2gradient=True)
-        img_match = edges
-    else:
-        img_gray = cv.cvtColor(img_rgb, cv.COLOR_BGR2GRAY)
-        img_match = img_gray
-    
-    if cual_template == TEMPLATE_INVERTIDO:
-        pattern = template_inv
-    else:
-        pattern = template
+    pattern = template_edges
 
     # Si el template es mas grande, lo achico
     scale_percent_w = img_rgb.shape[1]*100/pattern.shape[1]
@@ -68,13 +43,8 @@ def matchTemplate(img_rgb,
 
     # Encontramos los valores máximos y mínimos
     min_val, max_val, min_loc, max_loc = cv.minMaxLoc(res)
-    
-    # Si el método es TM_SQDIFF o TM_SQDIFF_NORMED, tomamos el mínimo
-    if metodo in [cv.TM_SQDIFF, cv.TM_SQDIFF_NORMED]:
-        top_left = min_loc
-    else:
-        top_left = max_loc
-    
+    top_left = max_loc
+
     # Marcamos el lugar donde lo haya encontrado
     h, w = template.shape
     bottom_right = (top_left[0] + w, top_left[1] + h)
@@ -86,6 +56,45 @@ def matchTemplate(img_rgb,
     return res, img_salida, (min_val, max_val)
 
 
+def matchTemplate(img_rgb):
+
+    imagenes = img_util.image_generator(img_rgb, 25, 2)
+
+    metodo = cv.TM_CCORR_NORMED
+    umbral_sup = 0.161
+
+    best_ic = -1
+    img_selected = None
+    out_selected = None
+    while True:
+        img, cc, pct = imagenes.next_img()
+        if img is None:
+            continue
+        if pct > 4:
+            break
+
+        img_edges = cv.Canny(img,40,105, L2gradient=True)
+
+        resultado, salida, valores = matchTemplateParam(img, img_edges, metodo)
+
+        if (valores[1] > best_ic
+            and (valores[1]>0.1 and valores[1] < umbral_sup)
+            ):
+            best_ic = valores[1]
+            img_selected = img.copy()       # imagen
+            out_selected = salida.copy()    # imagen con la detección
+        elif (valores[1] < 0.85 * best_ic): # considero que ya es una buena métrica
+            break
+
+
+    if best_ic > -1:
+        # print(f'shape {img_selected.shape} best = {best_ic}')
+        return img_selected, out_selected, best_ic
+    return -1, None, None
+
+"""
+DETECCION MULTIPLE
+"""
 
 def non_max_suppression(boxes, overlapThresh):
 
@@ -147,22 +156,18 @@ def non_max_suppression(boxes, overlapThresh):
     return boxes[pick]
 
 
-def matchTemplateMultiParam(img_rgb,
-                  metodo=cv.TM_CCORR_NORMED, 
-                  cual_imagen=IMG_EDGES,
-                  cual_template=TEMPLATE_ORIGINAL,
-                  umbral_coincidencia = 0.8,
-                  umbral_superposicion = 0.4):
+def matchTemplateMultiParam(img_rgb
+        , img_match
+        , metodo=cv.TM_CCORR_NORMED
+        , umbral_coincidencia = 0.2
+        , umbral_superposicion = 0.4):
 
     """
     Aplica el match template para detecciones múltiples
     Parámetros:
-    img_rgb: la imagen contra la cual se aplica el procedimiento
+    img_rgb: la imagen original para poder armar la imagen de salida
+    img_match: la imagen contra la cual se aplica el procedimiento (por ej con canny aplicado)
     metodo: método a utilizar
-    cual_imagen: IMG_EDGES (default) usa la imagen de bordes (Canny)
-                 IMG_GRAY usa la imagen en escala de grises
-    cual_template: TEMPLATE_ORIGINAL (default) usa el template de Coca Cola original
-                   TEMPLATE_INVERTIDO usa el template con los colores invertidos
     umbral_coincidencia: umbral para decidir si es un match a considerar o no
     umbral_superposicion: umbral para decidir si dos boxes superpuestos deben conservarse
                          o uno debe ser eliminado
@@ -172,17 +177,7 @@ def matchTemplateMultiParam(img_rgb,
         una imagen de salida con las boundind boxes (si se detectaron matches)
     """
 
-    if cual_imagen == IMG_EDGES:
-        edges = cv.Canny(img_rgb,40,105,L2gradient=True)
-        img_match = edges
-    else:
-        img_gray = cv.cvtColor(img_rgb, cv.COLOR_BGR2GRAY)
-        img_match = img_gray
-    
-    if cual_template == TEMPLATE_INVERTIDO:
-        pattern = template_inv
-    else:
-        pattern = template
+    pattern = template_edges
 
     # Si el template es mas grande, lo achico
     scale_percent_w = img_rgb.shape[1]*100/pattern.shape[1]
@@ -200,7 +195,8 @@ def matchTemplateMultiParam(img_rgb,
     res = cv.matchTemplate(img_match, pattern, metodo)
 
     # Construyo un array de bounding boxes por arriba del umbral de coincidencia
-    loc = np.where( res >= umbral_coincidencia)
+    loc = np.where(res >= umbral_coincidencia)
+
     h, w = template.shape   
     boundingBoxes = []
     for pt in zip(*loc[::-1]):
@@ -209,7 +205,6 @@ def matchTemplateMultiParam(img_rgb,
 
     # Realizo el non-max suppression
     pick = non_max_suppression(boundingBoxes, umbral_superposicion)
-
     # print(f'Bounding boxes antes: {len(boundingBoxes)} - ahora: {len(pick)}')
 
     # Itero sobre los bounding boxes seleccionados y los dibujo en la imagen de salida
@@ -219,74 +214,38 @@ def matchTemplateMultiParam(img_rgb,
         img_salida = cv.putText(img_salida, f'NC: {res[startY, startX]:.4}', org=pos_text, fontFace=cv.FONT_HERSHEY_SIMPLEX, 
                    fontScale=1, color=(0,255,0), thickness=4, lineType=cv.LINE_AA)    
          
-    return res, img_salida, len(boundingBoxes)
+    return res, img_salida, len(pick)
 
 """
-matchTemplateAuto construye un set de imagenes a distintas escalas a partir de una imagen de entrada
+matchTemplateMulti construye un set de imagenes a distintas escalas a partir de una imagen de entrada
 y busca detectar el logo de Coca Cola usando diferentes métodos.
-
 """
-escalas = np.append(np.arange(-100, 0, 3), np.arange(400, 0, -10))
 
-opciones = [
-     (cv.TM_CCORR_NORMED,  IMG_EDGES, TEMPLATE_ORIGINAL)
-    ,(cv.TM_CCORR_NORMED,  IMG_EDGES, TEMPLATE_INVERTIDO)
-    ,(cv.TM_CCOEFF_NORMED, IMG_EDGES, TEMPLATE_ORIGINAL)
-    ,(cv.TM_CCOEFF_NORMED, IMG_EDGES, TEMPLATE_INVERTIDO)
-    ]
+def matchTemplateMulti(img_rgb, start = 25):
+    imagenes = img_util.image_generator(img_rgb, start, 2)
 
-def matchTemplateAutoParam(imagenes, mm, ii, tt):
-
-    best_ic = -1
-    key_selected = -1
-    img_selected = None
-    out_selected = None
-    for key, img in imagenes.items():
-        resultado, salida, valores = matchTemplate(img
-                                                  , metodo = mm
-                                                  , cual_imagen = ii
-                                                  , cual_template = tt)
-
-        if (valores[1] > best_ic and
-            (    (valores[1]>0.2 and valores[1] < 0.28 and ii == IMG_EDGES and mm == cv.TM_CCORR_NORMED)
-              or (valores[1]>0.5 and valores[1] < 0.8 and ii == IMG_GRAY and mm == cv.TM_CCORR_NORMED)
-              or (valores[1]>0.2 and mm != cv.TM_CCORR_NORMED)
-                 )
-            ):
-            best_ic = valores[1]
-            key_selected = key             # escala
-            img_selected = img.copy()      # imagen
-            out_selected = salida.copy()   # imagen con la detección
-            params = (mm, ii, tt, img_selected.shape)
-        elif (valores[1] < best_ic):
+    max_boxes = 0
+    while True:
+        img, cc, pct = imagenes.next_img()
+        if img is None:
+            continue
+        if pct > 4.5:
             break
 
-    if key_selected > -1:
-        return key_selected, img_selected, out_selected, params, best_ic
-    return -1, None, None, None, None
+        img_edges = cv.Canny(img,40,105, L2gradient=True)
+        resultado, salida, boxes = matchTemplateMultiParam(img, img_edges
+                                        , umbral_coincidencia = 0.15
+                                        , umbral_superposicion = .2
+                                        )
 
+        if (boxes > max_boxes):
+            max_boxes = boxes
+            res_selected = resultado
+            img_selected = img.copy()       # imagen
+            out_selected = salida.copy()    # imagen con la detección
+            # print(f'shape {img.shape} boxes = {boxes}')
 
-def matchTemplateAuto(img_rgb):
-    imagenes = set_imagenes(img_rgb, escalas)
-    for mm, ii, tt in opciones:
-        key_selected, img_selected, out_selected, parametros, ic = matchTemplateAutoParam(imagenes, mm, ii, tt)
-        if key_selected > -1:
-            return key_selected, img_selected, out_selected, parametros, ic
+    if max_boxes > 0:
+        return res_selected, out_selected, max_boxes
 
-    return -1, None, None, None, None
-
-
-def matchTemplateMulti(img_rgb):
-    imagenes = set_imagenes(img_rgb, escalas)
-    for key, img in imagenes.items():
-        # print(f'key={key}  size={img.shape}')
-        resultado, salida, boxes = matchTemplateMultiParam(img, metodo=cv.TM_CCORR_NORMED
-                                               , umbral_coincidencia = 0.65
-                                               , umbral_superposicion = .25
-                                               , cual_imagen=IMG_GRAY
-                                               , cual_template=TEMPLATE_INVERTIDO
-                                                      )
-        if boxes > 0:
-            return resultado, salida
-
-    return None, None
+    return None, None, 0
